@@ -26,3 +26,6 @@ train = "volyn_ragz.cli:train_main"
 
 [tool.setuptools.packages.find]
 where = ["."]
+
+[tool.setuptools.package-data]
+volyn_ragz = ["counties.json"]

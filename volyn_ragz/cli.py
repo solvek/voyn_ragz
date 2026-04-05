@@ -8,12 +8,12 @@ import sys
 from pathlib import Path
 
 import click
-from PIL import Image
 
+from volyn_ragz.counties import county_codes, county_label, iter_counties
 from volyn_ragz.db import DEFAULT_DB_PATH, connect, upsert_scan_raw_ocr
-from volyn_ragz.image_prep import horizontal_strips, is_mostly_blank, right_half
-from volyn_ragz.ocr.trocr_engine import DEFAULT_MODEL, TrOCREngine
-from volyn_ragz.train_trocr import run_finetune
+
+# Як volyn_ragz.ocr.trocr_engine.DEFAULT_MODEL — без імпорту torch/transformers на старті.
+DEFAULT_TROCR_MODEL = "microsoft/trocr-base-handwritten"
 
 
 def parse_scan_filename(name: str) -> tuple[str, str]:
@@ -32,12 +32,26 @@ IMAGE_RE = re.compile(r"\.(jpe?g|png|tif{1,2}|webp)$", re.I)
     "folder",
     type=str,
     metavar="FOLDER",
-    required=True,
+    required=False,
+)
+@click.option(
+    "--list-counties",
+    is_flag=True,
+    help="Вивести коди довідника районів і вийти (FOLDER не потрібен).",
 )
 @click.option(
     "--county",
-    required=True,
-    help="Район (зберігається в scan.county).",
+    "county_code",
+    required=False,
+    type=click.Choice(county_codes(), case_sensitive=True),
+    help="Код району з volyn_ragz/counties.json (зберігається в scan.county повна назва).",
+)
+@click.option(
+    "--type",
+    "event_type",
+    type=click.Choice(["B", "M", "D", "R", "A"], case_sensitive=True),
+    default=None,
+    help="Тип події в БД: B народження, M одруження, D смерть, R розлучення, A усиновлення.",
 )
 @click.option(
     "--scans-root",
@@ -54,7 +68,7 @@ IMAGE_RE = re.compile(r"\.(jpe?g|png|tif{1,2}|webp)$", re.I)
 )
 @click.option(
     "--model",
-    default=DEFAULT_MODEL,
+    default=DEFAULT_TROCR_MODEL,
     show_default=True,
     help="Ідентифікатор моделі TrOCR на Hugging Face.",
 )
@@ -87,8 +101,10 @@ IMAGE_RE = re.compile(r"\.(jpe?g|png|tif{1,2}|webp)$", re.I)
     help="Лише вивести рядки в stdout, без запису в БД.",
 )
 def recognize_main(
-    folder: str,
-    county: str,
+    folder: str | None,
+    list_counties: bool,
+    county_code: str | None,
+    event_type: str | None,
     scans_root: Path,
     db_path: Path,
     model: str,
@@ -99,6 +115,22 @@ def recognize_main(
     dry_run: bool,
 ) -> None:
     """Розпізнає праву половину зображень у scans/FOLDER і пише сирий OCR у БД."""
+    if list_counties:
+        for code, label in iter_counties():
+            click.echo(f"{code}\t{label}")
+        return
+
+    if not folder:
+        raise click.UsageError("Потрібен FOLDER (підкаталог у scans), якщо не вказано --list-counties.")
+    if not county_code:
+        raise click.UsageError("Потрібен --county CODE; див. --list-counties.")
+
+    county = county_label(county_code)
+    from PIL import Image
+
+    from volyn_ragz.image_prep import horizontal_strips, is_mostly_blank, right_half
+    from volyn_ragz.ocr.trocr_engine import TrOCREngine
+
     scan_dir = scans_root / folder
     if not scan_dir.is_dir():
         raise click.ClickException(f"немає каталогу: {scan_dir}")
@@ -146,6 +178,7 @@ def recognize_main(
                     file=f_file,
                     county=county,
                     raw_ocr=raw,
+                    event_type=event_type,
                 )
                 conn.commit()
     finally:
@@ -168,7 +201,7 @@ def recognize_main(
 )
 @click.option(
     "--base-model",
-    default=DEFAULT_MODEL,
+    default=DEFAULT_TROCR_MODEL,
     show_default=True,
 )
 @click.option("--epochs", type=float, default=3.0, show_default=True)
@@ -201,6 +234,8 @@ def train_main(
 
     if not rows:
         raise click.ClickException("manifest порожній")
+
+    from volyn_ragz.train_trocr import run_finetune
 
     run_finetune(
         rows,

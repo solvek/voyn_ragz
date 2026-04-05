@@ -105,18 +105,20 @@ def upsert_scan_raw_ocr(
     file: str,
     county: str,
     raw_ocr: str,
+    event_type: str | None = None,
 ) -> int:
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
         """
         INSERT INTO scan (folder, file, county, date, type, city, update_time, raw_ocr)
-        VALUES (?, ?, ?, NULL, NULL, NULL, ?, ?)
+        VALUES (?, ?, ?, NULL, ?, NULL, ?, ?)
         ON CONFLICT(folder, file) DO UPDATE SET
             county = excluded.county,
+            type = COALESCE(excluded.type, scan.type),
             update_time = excluded.update_time,
             raw_ocr = excluded.raw_ocr
         """,
-        (folder, file, county, now, raw_ocr),
+        (folder, file, county, event_type, now, raw_ocr),
     )
     row = conn.execute(
         "SELECT id FROM scan WHERE folder = ? AND file = ?",
