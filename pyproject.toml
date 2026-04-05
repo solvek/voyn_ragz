@@ -1,0 +1,28 @@
+# Менший інстал на машині без GPU: спочатку
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+# потім pip install -e . (або вручну transformers, pillow, accelerate, click).
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "volyn-ragz"
+version = "0.1.0"
+description = "CLI для розпізнавання карток РАГЗ (Volyn)"
+requires-python = ">=3.9"
+dependencies = [
+  "torch>=2.0",
+  "transformers>=4.36",
+  "pillow>=10.0",
+  "tqdm>=4.66",
+  "accelerate>=0.26",
+  "click>=8.1",
+]
+
+[project.scripts]
+recognize = "volyn_ragz.cli:recognize_main"
+train = "volyn_ragz.cli:train_main"
+
+[tool.setuptools.packages.find]
+where = ["."]
