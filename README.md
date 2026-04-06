@@ -2,27 +2,114 @@
 
 CLI-інструменти для обробки сканів карток РАГЗ (Волинська область, 1940-ті): розпізнавання рукописного тексту (TrOCR) і збереження сирого OCR у SQLite.
 
-## Встановлення
+## Встановлення і перший запуск моделі (детально)
 
-З кореня репозиторію:
+Нижче наведено максимально практичний сценарій "з нуля": перевіряємо GPU, ставимо правильний стек, кешуємо модель і запускаємо перевірку.
 
-```bash
-pip install -e .
-```
-
-На машині без GPU зручно спочатку поставити CPU-збірку PyTorch, потім пакет:
+### 1) Перевірка відеокарти та CUDA
 
 ```bash
-pip install torch --index-url https://download.pytorch.org/whl/cpu
-pip install -e .
+lspci | egrep -i "vga|3d|display|nvidia|amd|intel"
 ```
 
-Після встановлення з’являться команди `recognize` і `train` (див. `pyproject.toml`). Альтернатива:
+Якщо встановлена NVIDIA-карта і драйвер:
+
+```bash
+nvidia-smi
+```
+
+Швидка перевірка з PyTorch:
+
+```bash
+python3 - <<'PY'
+import torch
+print("torch:", torch.__version__)
+print("cuda_available:", torch.cuda.is_available())
+print("cuda_device_count:", torch.cuda.device_count())
+PY
+```
+
+### 2) Рекомендований варіант інсталяції (через локальне `.venv`)
+
+> Рекомендовано завжди ставити в окреме середовище проєкту.
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+```
+
+#### Варіант A: CPU (без NVIDIA/CUDA, або є AMD/Intel GPU)
+
+```bash
+python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+python -m pip install -e . --no-build-isolation
+```
+
+#### Варіант B: NVIDIA CUDA
+
+```bash
+python -m pip install -e . --no-build-isolation
+```
+
+Потім перевірити:
+
+```bash
+python - <<'PY'
+import torch
+print("cuda_available:", torch.cuda.is_available())
+PY
+```
+
+### 3) Перевірка сумісності `transformers` для TrOCR
+
+Проєкт використовує `TrOCRProcessor` і `VisionEncoderDecoderModel`.
+Іноді в нових версіях `transformers` може ламатися експорт `TrOCRProcessor`.
+
+Перевірка:
+
+```bash
+python - <<'PY'
+import transformers
+print("transformers:", transformers.__version__)
+print("has_TrOCRProcessor:", hasattr(transformers, "TrOCRProcessor"))
+PY
+```
+
+Якщо `has_TrOCRProcessor: False`, зафіксуйте сумісну версію:
+
+```bash
+python -m pip install "transformers==4.46.3"
+```
+
+### 4) Встановлення (кешування) базової моделі TrOCR
+
+Базова модель:
+
+- `microsoft/trocr-base-handwritten`
+
+Попередньо завантажити в локальний кеш Hugging Face:
+
+```bash
+python - <<'PY'
+from transformers import TrOCRProcessor, VisionEncoderDecoderModel
+model_id = "microsoft/trocr-base-handwritten"
+TrOCRProcessor.from_pretrained(model_id)
+VisionEncoderDecoderModel.from_pretrained(model_id)
+print("Model is cached and ready.")
+PY
+```
+
+Після цього `recognize` зможе працювати офлайн, якщо кеш не видаляти.
+
+### 5) Перевірка CLI
 
 ```bash
 python -m volyn_ragz recognize --help
 python -m volyn_ragz train --help
 ```
+
+Після встановлення з’являються команди `recognize` і `train` (див. `pyproject.toml`), але запуск через модуль (`python -m ...`) надійніший і не залежить від PATH.
 
 ## Інструмент `recognize`
 
@@ -102,3 +189,39 @@ train --manifest data/lines.jsonl --output-dir models/volyn-trocr-v1
    Перший запуск завантажить ваги в локальний кеш; далі можна працювати офлайн, якщо кеш уже є.
 
 Базова модель з Hub без дофайнтюну залишається варіантом за замовчуванням (`--model microsoft/trocr-base-handwritten`), якщо `--model` не змінювати.
+
+## Діагностика типових проблем
+
+### `ImportError: cannot import name 'TrOCRProcessor'`
+
+Причина: несумісна версія `transformers`.
+
+Рішення:
+
+```bash
+python -m pip install "transformers==4.46.3"
+```
+
+### `torch.cuda.is_available() == False`
+
+- На машині без NVIDIA це нормально (працюємо на CPU).
+- Для примусового CPU-режиму в `recognize`:
+
+```bash
+recognize MY_FOLDER --county kovelskyi_raion --device cpu
+```
+
+### Команди `recognize` / `train` не знайдені
+
+Запускайте через модуль:
+
+```bash
+python -m volyn_ragz recognize --help
+python -m volyn_ragz train --help
+```
+
+Або перевстановіть пакет у активованому `.venv`:
+
+```bash
+python -m pip install -e . --no-build-isolation
+```
