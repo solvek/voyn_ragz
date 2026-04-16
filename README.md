@@ -1,6 +1,6 @@
 # Volyn RAGZ
 
-CLI-інструменти для обробки сканів карток РАГЗ (Волинська область, 1940-ті): розпізнавання рукописного тексту (TrOCR) і збереження сирого OCR у SQLite.
+CLI-інструменти для обробки сканів карток РАГЗ (Волинська область, 1940-ті): розпізнавання рукописного тексту через локальний `TrOCR` або онлайн `Gemini` і збереження сирого OCR у SQLite.
 
 ## Встановлення і перший запуск моделі (детально)
 
@@ -162,9 +162,41 @@ python -m volyn_ragz train --help
 
 Після встановлення з’являються команди `recognize` і `train` (див. `pyproject.toml`), але запуск через модуль (`python -m ...`) надійніший і не залежить від PATH.
 
+### 6) Використання `Gemini` для OCR
+
+Для онлайн backend потрібен ключ Gemini API.
+
+1. Створіть локальний файл середовища:
+
+```bash
+cp .env.example .env
+```
+
+2. Впишіть у `.env` ваш ключ:
+
+```bash
+GOOGLE_API_KEY=your-real-key
+```
+
+3. Завантажте змінні у shell перед запуском:
+
+```bash
+set -a
+source .env
+set +a
+```
+
+4. Запускайте `recognize` через backend `gemini`:
+
+```bash
+recognize 122484190 --county kovelskyi_raion --ocr-backend gemini
+```
+
+За замовчуванням використовується модель `gemini-2.5-flash`. Іншу модель можна явно задати через `--model`.
+
 ## Інструмент `recognize`
 
-Ріже зображення на праву половину й горизонтальні смуги, проганяє їх через TrOCR і записує результат у таблицю `scan` (поле `raw_ocr`), якщо не вказано `--dry-run`.
+Ріже зображення на праву половину й горизонтальні смуги, проганяє їх через вибраний OCR backend і записує результат у таблицю `scan` (поле `raw_ocr`), якщо не вказано `--dry-run`.
 
 **Синтаксис:** `recognize FOLDER [опції]` (аргумент `FOLDER` не потрібен разом із `--list-counties`).
 
@@ -182,8 +214,9 @@ python -m volyn_ragz train --help
 | `--type` | Тип події в БД: `B` (народження), `M` (одруження), `D` (смерть), `R` (розлучення), `A` (усиновлення). |
 | `--scans-root` | Каталог зі сканами (типово: `scans`). |
 | `--db` | Шлях до SQLite (типово: `data/volyn_ragz.db`). |
-| `--model` | Ідентифікатор моделі на Hugging Face **або локальний шлях** до збереженої дофайнтюненої моделі (див. нижче). Типово: `microsoft/trocr-base-handwritten`. |
-| `--device` | `cpu` або `cuda`; якщо не вказано — автоматично (CUDA, якщо доступна). |
+| `--ocr-backend` | OCR backend: `trocr` (локальний) або `gemini` (онлайн). Типово: `trocr`. |
+| `--model` | Модель для вибраного backend. Для `trocr` це Hugging Face id або локальний шлях; для `gemini` це назва Gemini-моделі. Якщо не вказувати, береться дефолт для backend. |
+| `--device` | `cpu` або `cuda` для `trocr`; для `gemini` ігнорується. |
 | `--skip-start N` | Пропустити перші N файлів після сортування (шум на початку каталогу). |
 | `--skip-end N` | Пропустити останні N файлів. |
 | `--limit N` | Обробити не більше N файлів (тести). |
@@ -196,6 +229,8 @@ python -m volyn_ragz train --help
 ```bash
 recognize --list-counties
 recognize 122484190 --county kovelskyi_raion --type B
+recognize 122484190 --county kovelskyi_raion --ocr-backend gemini
+recognize 122484190 --county kovelskyi_raion --ocr-backend gemini --model gemini-2.5-flash
 ```
 
 ## Інструмент `train`
@@ -219,7 +254,9 @@ recognize 122484190 --county kovelskyi_raion --type B
 train --manifest data/lines.jsonl --output-dir models/volyn-trocr-v1
 ```
 
-## Як підключити дофайнтюнену модель до `recognize`
+## Як підключити модель до `recognize`
+
+### Варіант 1: `TrOCR`
 
 Після `train` у `--output-dir` лежать `config.json`, ваги та файли процесора — це стандартний знімок для `from_pretrained`.
 
@@ -239,7 +276,24 @@ train --manifest data/lines.jsonl --output-dir models/volyn-trocr-v1
 
    Перший запуск завантажить ваги в локальний кеш; далі можна працювати офлайн, якщо кеш уже є.
 
-Базова модель з Hub без дофайнтюну залишається варіантом за замовчуванням (`--model microsoft/trocr-base-handwritten`), якщо `--model` не змінювати.
+Базова модель з Hub без дофайнтюну залишається варіантом за замовчуванням (`--ocr-backend trocr` і без `--model`).
+
+### Варіант 2: `Gemini`
+
+`Gemini` не потребує локального каталогу моделі, але потребує `GOOGLE_API_KEY` у змінних середовища.
+
+```bash
+set -a
+source .env
+set +a
+recognize MY_FOLDER --county kovelskyi_raion --ocr-backend gemini
+```
+
+Щоб змінити конкретну Gemini-модель:
+
+```bash
+recognize MY_FOLDER --county kovelskyi_raion --ocr-backend gemini --model gemini-2.5-flash
+```
 
 ## Як донавчати локально завантажену модель
 

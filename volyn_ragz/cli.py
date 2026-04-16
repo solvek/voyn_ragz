@@ -14,6 +14,7 @@ from volyn_ragz.db import DEFAULT_DB_PATH, connect, upsert_scan_raw_ocr
 
 # Як volyn_ragz.ocr.trocr_engine.DEFAULT_MODEL — без імпорту torch/transformers на старті.
 DEFAULT_TROCR_MODEL = "microsoft/trocr-base-handwritten"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 
 
 def parse_scan_filename(name: str) -> tuple[str, str]:
@@ -67,15 +68,21 @@ IMAGE_RE = re.compile(r"\.(jpe?g|png|tif{1,2}|webp)$", re.I)
     help="Шлях до SQLite БД.",
 )
 @click.option(
-    "--model",
-    default=DEFAULT_TROCR_MODEL,
+    "--ocr-backend",
+    type=click.Choice(["trocr", "gemini"], case_sensitive=False),
+    default="trocr",
     show_default=True,
-    help="Ідентифікатор моделі TrOCR на Hugging Face.",
+    help="Який OCR backend використовувати: локальний TrOCR або онлайн Gemini.",
+)
+@click.option(
+    "--model",
+    default=None,
+    help="Назва/ідентифікатор моделі для вибраного backend. Для Gemini: напр. gemini-2.5-flash.",
 )
 @click.option(
     "--device",
     default=None,
-    help="cpu або cuda (за замовчуванням — автоматично).",
+    help="cpu або cuda для TrOCR (для Gemini ігнорується).",
 )
 @click.option(
     "--skip-start",
@@ -107,7 +114,8 @@ def recognize_main(
     event_type: str | None,
     scans_root: Path,
     db_path: Path,
-    model: str,
+    ocr_backend: str,
+    model: str | None,
     device: str | None,
     skip_start: int,
     skip_end: int,
@@ -129,7 +137,7 @@ def recognize_main(
     from PIL import Image
 
     from volyn_ragz.image_prep import horizontal_strips, is_mostly_blank, right_half
-    from volyn_ragz.ocr.trocr_engine import TrOCREngine
+    from volyn_ragz.ocr import get_ocr_engine
 
     scan_dir = scans_root / folder
     if not scan_dir.is_dir():
@@ -148,7 +156,14 @@ def recognize_main(
     if not files:
         raise click.ClickException("не знайдено зображень за заданими фільтрами")
 
-    engine = TrOCREngine(model_name=model, device=device)
+    if model is None:
+        model = DEFAULT_GEMINI_MODEL if ocr_backend.lower() == "gemini" else DEFAULT_TROCR_MODEL
+
+    engine = get_ocr_engine(
+        ocr_backend.lower(),
+        model_name=model,
+        device=device,
+    )
 
     conn = None if dry_run else connect(db_path)
     try:
