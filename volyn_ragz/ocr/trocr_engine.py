@@ -2,9 +2,37 @@
 
 from __future__ import annotations
 
+import sys
+import types
+
 import torch
 from PIL import Image
-from transformers import TrOCRProcessor, VisionEncoderDecoderModel
+
+try:
+    import torchvision.transforms as tv_transforms
+
+    if not hasattr(tv_transforms.InterpolationMode, "NEAREST_EXACT"):
+        tv_transforms.InterpolationMode.NEAREST_EXACT = tv_transforms.InterpolationMode.NEAREST
+
+    # transformers>=4.57 expects torchvision.transforms.v2, absent in older torchvision builds.
+    if "torchvision.transforms.v2" not in sys.modules:
+        tv_v2 = types.ModuleType("torchvision.transforms.v2")
+        tv_v2.functional = tv_transforms.functional
+        sys.modules["torchvision.transforms.v2"] = tv_v2
+except Exception:  # noqa: BLE001
+    pass
+
+try:
+    from transformers import VisionEncoderDecoderModel
+except ImportError:  # transformers>=4.57 may stop re-exporting at package root
+    from transformers.models.vision_encoder_decoder.modeling_vision_encoder_decoder import (
+        VisionEncoderDecoderModel,
+    )
+
+try:
+    from transformers import TrOCRProcessor
+except ImportError:  # transformers>=4.57 may stop re-exporting at package root
+    from transformers.models.trocr.processing_trocr import TrOCRProcessor
 
 DEFAULT_MODEL = "microsoft/trocr-base-handwritten"
 

@@ -102,6 +102,57 @@ PY
 
 Після цього `recognize` зможе працювати офлайн, якщо кеш не видаляти.
 
+### 4.1) Скільки місця займає модель і чи це разово
+
+- Для однієї базової моделі `microsoft/trocr-base-handwritten` орієнтуйтесь приблизно на **1-2 GB** диску (ваги + процесор + службові файли + кеш).
+- Завантаження зазвичай **разове для цієї машини/середовища**: після кешування модель використовується локально.
+- Якщо очищати Hugging Face cache або створити нове середовище без доступу до старого кешу, модель потрібно завантажити знову.
+
+### 4.2) Ручне локальне завантаження моделі (рекомендовано для офлайн)
+
+Якщо інтернет до Hub нестабільний, краще один раз зберегти модель у вашу папку проєкту й далі працювати тільки з локальним шляхом.
+
+1. Створіть каталог під моделі:
+
+```bash
+mkdir -p models
+```
+
+2. Встановіть утиліту Hub (разово у `.venv`):
+
+```bash
+python -m pip install "huggingface_hub>=0.25"
+```
+
+3. Скачайте повний snapshot моделі у локальну папку:
+
+```bash
+python - <<'PY'
+from huggingface_hub import snapshot_download
+
+snapshot_download(
+    repo_id="microsoft/trocr-base-handwritten",
+    local_dir="models/trocr-base-handwritten",
+    local_dir_use_symlinks=False,
+)
+print("Downloaded to models/trocr-base-handwritten")
+PY
+```
+
+4. Перевірте, що в папці є ключові файли (`config.json`, `preprocessor_config.json`, tokenizer/processor файли, ваги):
+
+```bash
+ls models/trocr-base-handwritten
+```
+
+5. Запускайте `recognize` вже з локальною моделлю:
+
+```bash
+recognize 122484190 --county kovelskyi_raion --model ./models/trocr-base-handwritten
+```
+
+Після цього доступ до інтернету для інференсу не потрібен.
+
 ### 5) Перевірка CLI
 
 ```bash
@@ -190,6 +241,27 @@ train --manifest data/lines.jsonl --output-dir models/volyn-trocr-v1
 
 Базова модель з Hub без дофайнтюну залишається варіантом за замовчуванням (`--model microsoft/trocr-base-handwritten`), якщо `--model` не змінювати.
 
+## Як донавчати локально завантажену модель
+
+Локальна базова модель може бути джерелом для `train` так само, як і Hub-модель.
+
+```bash
+train \
+  --manifest data/lines.jsonl \
+  --base-model ./models/trocr-base-handwritten \
+  --output-dir ./models/volyn-trocr-v1
+```
+
+Потім нову донавчену версію можна:
+
+- використовувати для розпізнавання:
+
+```bash
+recognize 122484190 --county kovelskyi_raion --model ./models/volyn-trocr-v1
+```
+
+- або взяти як базу для наступного етапу донавчання (`--base-model ./models/volyn-trocr-v1`).
+
 ## Діагностика типових проблем
 
 ### `ImportError: cannot import name 'TrOCRProcessor'`
@@ -225,3 +297,9 @@ python -m volyn_ragz train --help
 ```bash
 python -m pip install -e . --no-build-isolation
 ```
+
+### Не вдається скачати модель з Hugging Face (Connection reset / DNS / timeout)
+
+- Для стабільної роботи зробіть разове ручне завантаження моделі у локальну папку (розділ `4.2`).
+- Після цього вказуйте `--model ./models/trocr-base-handwritten` (або вашу донавчену локальну папку).
+- Якщо модель уже в локальній папці, `recognize` і `train` можуть працювати без доступу до Hub.
